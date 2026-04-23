@@ -1,6 +1,11 @@
 import arcade
 import random
 import math
+import os
+
+# --- PATH FIX: Ensures the game looks in the folder where the script is saved ---
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
 
 # Constants
 SCREEN_WIDTH = 1200
@@ -13,8 +18,8 @@ GRAVITY = 0.5
 BULLET_SPEED = 14
 ENEMY_SPEED = 2
 ENEMY_BULLET_SPEED = 5
-GRACE_PERIOD_DURATION = 2.0  # Seconds of invincibility at start
-PLATFORM_BUFFER = 120        # Minimum distance between platforms to prevent softlocks
+GRACE_PERIOD_DURATION = 2
+PLATFORM_BUFFER = 120       
 
 class Enemy(arcade.Sprite):
     def __init__(self, x, y, danger_list):
@@ -46,8 +51,6 @@ class Enemy(arcade.Sprite):
 
 
 class ShooterEnemy(arcade.Sprite):
-    """Nemico che spara un proiettile verso il basso ogni tot secondi."""
-
     def __init__(self, x, y, danger_list, enemy_bullet_list):
         super().__init__("enemy.png", scale=1.2)
         self.center_x = x
@@ -93,8 +96,6 @@ class ShooterEnemy(arcade.Sprite):
 
 
 class SpreadShooterEnemy(arcade.Sprite):
-    """Nemico che spara 3 proiettili: giù, 45° e -45° rispetto al basso."""
-
     def __init__(self, x, y, danger_list, enemy_bullet_list):
         super().__init__("enemy.png", scale=1.2)
         self.center_x = x
@@ -131,8 +132,6 @@ class SpreadShooterEnemy(arcade.Sprite):
             self._shoot_spread()
 
     def _shoot_spread(self):
-        # Angoli in gradi rispetto al basso (270°):
-        # centro = 270°, sinistra = 225° (270-45), destra = 315° (270+45)
         for angle_deg in [270, 225, 315]:
             angle_rad = math.radians(angle_deg)
             bullet = arcade.SpriteSolidColor(8, 8, arcade.color.ELECTRIC_BLUE)
@@ -185,13 +184,14 @@ class Game(arcade.Window):
         self.bonus_score = 0
         self.high_score = 0
         self.grace_timer = 0
+        self.music_player = None
 
         self.camera = arcade.Camera2D()
 
     def setup(self):
-        if hasattr(self, "music_player") and self.music_player:
+        if self.music_player:
             self.music_player.pause()
-            self.music_player.delete()
+            # Note: delete() is not needed in newer arcade/pyglet versions, but we pause it.
 
         arcade.set_background_color(arcade.color.SKY_BLUE)
 
@@ -208,12 +208,14 @@ class Game(arcade.Window):
         self.bonus_score = 0
         self.grace_timer = GRACE_PERIOD_DURATION
 
-        self.snd_shoot = arcade.Sound("shoot.wav")
-        self.snd_death = arcade.Sound("deathwav.wav")
-        self.snd_fruit = arcade.Sound("fruit.wav")
-        self.snd_ouch = arcade.Sound("ouch.wav")
+        # --- UPDATED SOUND PATHS ---
+        # We add "sounds/" before each filename
+        self.snd_shoot = arcade.Sound("sounds/shoot.wav")
+        self.snd_death = arcade.Sound("sounds/deathwav.wav")
+        self.snd_fruit = arcade.Sound("sounds/fruit.wav")
+        self.snd_ouch = arcade.Sound("sounds/ouch.wav")
+        self.music = arcade.Sound("sounds/music.mp3")
 
-        self.music = arcade.Sound("music.mp3")
         self.music_player = self.music.play(volume=0.4, loop=True)
 
         self.player = arcade.Sprite("palla.png", scale=1)
@@ -234,10 +236,9 @@ class Game(arcade.Window):
 
     def generate_platforms(self, up_to_y):
         while self.generated_y < up_to_y:
-            # Re-roll position if it overlaps with an existing platform
             valid_pos = False
             attempts = 0
-            temp_y = self.generated_y + random.randint(80, 110) # Tightened range for jump reliability
+            temp_y = self.generated_y + random.randint(80, 110)
             temp_x = 0
 
             while not valid_pos and attempts < 10:
@@ -252,7 +253,6 @@ class Game(arcade.Window):
             platform.center_y = self.generated_y
             self.danger_list.append(platform)
 
-            # ENEMIES — scegli tipo casualmente
             if random.random() < 0.5:
                 for _ in range(20):
                     ex = random.randint(-500, 500)
@@ -260,21 +260,17 @@ class Game(arcade.Window):
                     if not overlaps_any_platform(ex, ey, 40, self.danger_list):
                         roll = random.random()
                         if roll < 0.40:
-                            # Nemico normale
                             self.enemy_list.append(Enemy(ex, ey, self.danger_list))
                         elif roll < 0.70:
-                            # Nemico che spara verso il basso
                             self.enemy_list.append(
                                 ShooterEnemy(ex, ey, self.danger_list, self.enemy_bullet_list)
                             )
                         else:
-                            # Nemico che spara a ventaglio (3 proiettili)
                             self.enemy_list.append(
                                 SpreadShooterEnemy(ex, ey, self.danger_list, self.enemy_bullet_list)
                             )
                         break
 
-            # FRUITS
             if random.random() < 0.15:
                 for _ in range(20):
                     fx = random.randint(-500, 500)
@@ -320,10 +316,9 @@ class Game(arcade.Window):
         self.enemy_list.update(delta_time)
         self.fruit_list.update()
 
-        # Grace period logic
         if self.grace_timer > 0:
             self.grace_timer -= delta_time
-            self.player.alpha = 150  # Semi-transparent
+            self.player.alpha = 150
         else:
             self.player.alpha = 255
 
@@ -331,59 +326,46 @@ class Game(arcade.Window):
             self.max_y = self.player.center_y
 
         self.high_score = max(self.high_score, int(self.max_y) + self.bonus_score)
-
         self.generate_platforms(self.max_y + 800)
-
         self.player.center_x = max(-560, min(560, self.player.center_x))
 
-        # Check death only if grace period is over
         if self.grace_timer <= 0:
-            # DEATH — piattaforme
             if arcade.check_for_collision_with_list(self.player, self.danger_list):
                 self.snd_death.play()
                 self.setup()
                 return
 
-            # DEATH — contatto nemici
             if arcade.check_for_collision_with_list(self.player, self.enemy_list):
                 self.snd_death.play()
                 self.setup()
                 return
 
-            # DEATH — proiettili nemici
             if arcade.check_for_collision_with_list(self.player, self.enemy_bullet_list):
                 self.snd_death.play()
                 self.setup()
                 return
 
-        # DEATH — caduta
         if self.player.center_y < self.max_y - 340:
             self.snd_death.play()
             self.setup()
             return
 
-        # FRUIT COLLECTION
         for fruit in arcade.check_for_collision_with_list(self.player, self.fruit_list):
             self.snd_fruit.play()
             fruit.remove_from_sprite_lists()
             self.bonus_score += 500
 
-        # PLAYER BULLETS vs ENEMIES
         for bullet in list(self.bullet_list):
             hit_list = arcade.check_for_collision_with_list(bullet, self.enemy_list)
-
             if hit_list:
                 bullet.remove_from_sprite_lists()
-
             for enemy in hit_list:
                 enemy.remove_from_sprite_lists()
                 arcade.play_sound(self.snd_ouch)
                 self.bonus_score += 100
-
             if bullet.top > SCREEN_HEIGHT + self.camera.position[1]:
                 bullet.remove_from_sprite_lists()
 
-        # ENEMY BULLETS — rimuovi se escono dallo schermo
         cam_y = self.camera.position[1]
         for eb in list(self.enemy_bullet_list):
             if (eb.bottom < cam_y - SCREEN_HEIGHT or
@@ -396,31 +378,24 @@ class Game(arcade.Window):
     def center_camera_to_player(self):
         screen_center_x = self.player.center_x - SCREEN_WIDTH / 2
         screen_center_x = max(0, screen_center_x)
-
         self.camera.position = (screen_center_x, self.max_y)
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.LEFT or key == arcade.key.A:
             self.player.change_x = -PLAYER_SPEED
             self.player.scale_x = -1
-
         elif key == arcade.key.RIGHT or key == arcade.key.D:
             self.player.change_x = PLAYER_SPEED
             self.player.scale_x = 1
-
         elif key == arcade.key.UP or key == arcade.key.W:
             self.player.change_y = JUMP_SPEED
-
         elif key == arcade.key.SPACE:
             self.snd_shoot.play()
-
             bullet = arcade.SpriteSolidColor(10, 20, arcade.color.YELLOW)
             bullet.center_x = self.player.center_x
             bullet.bottom = self.player.top
             bullet.change_y = BULLET_SPEED
-
             self.bullet_list.append(bullet)
-
         elif key == arcade.key.R:
             self.setup()
 
@@ -428,12 +403,10 @@ class Game(arcade.Window):
         if key in (arcade.key.LEFT, arcade.key.RIGHT, arcade.key.D, arcade.key.A):
             self.player.change_x = 0
 
-
 def main():
     game = Game()
     game.setup()
     arcade.run()
-
 
 if __name__ == "__main__":
     main()
