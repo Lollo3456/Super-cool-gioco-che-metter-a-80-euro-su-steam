@@ -3,7 +3,6 @@ import random
 import math
 import os
 
-# --- PATH FIX: Ensures the game looks in the folder where the script is saved ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
